@@ -23,12 +23,23 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdbool.h>
+#include "usbd_hid.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
+typedef struct
+{
+  uint8_t MODIFIER;
+  uint8_t RESERVED;
+  uint8_t KEYCODE1;
+  uint8_t KEYCODE2;
+  uint8_t KEYCODE3;
+  uint8_t KEYCODE4;
+  uint8_t KEYCODE5;
+  uint8_t KEYCODE6;
+} USB_HID_KeyboardTypedef_t;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -44,7 +55,11 @@
 TIM_HandleTypeDef htim6;
 
 /* USER CODE BEGIN PV */
+USB_HID_KeyboardTypedef_t usbHIDKbdStruct = {0, 0, 0, 0, 0, 0, 0, 0};
+bool key_CTRL_pressed = false, key_C_pressed = false, key_V_pressed = false;
 
+extern USBD_HandleTypeDef hUsbDeviceFS;
+extern bool time10msElapsed;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -57,7 +72,91 @@ static void MX_TIM6_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void task_keypad_polling(void)
+{
+  static uint8_t key_CTRL_pressed_count = 0, key_C_pressed_count = 0, key_V_pressed_count = 0;
+  if (HAL_GPIO_ReadPin(KEY_CTRL_GPIO_Port, KEY_CTRL_Pin) == GPIO_PIN_RESET)
+  {
+    key_CTRL_pressed_count++;
+    if (key_CTRL_pressed_count == 3)
+    {
+      key_CTRL_pressed_count = 0;
+      key_CTRL_pressed = true;
+    }
+  }
+  if (HAL_GPIO_ReadPin(KEY_C_GPIO_Port, KEY_C_Pin) == GPIO_PIN_RESET)
+  {
+    key_C_pressed_count++;
+    if (key_C_pressed_count == 3)
+    {
+      key_C_pressed_count = 0;
+      key_C_pressed = true;
+    }
+  }
+  if (HAL_GPIO_ReadPin(KEY_V_GPIO_Port, KEY_V_Pin) == GPIO_PIN_RESET)
+  {
+    key_V_pressed_count++;
+    if (key_V_pressed_count == 3)
+    {
+      key_V_pressed_count = 0;
+      key_V_pressed = true;
+    }
+  }
+}
 
+void task_act_usb_hid_kbd()
+{
+  if (key_C_pressed)
+  {
+    key_C_pressed = false;
+    if (key_CTRL_pressed)
+    {
+      key_CTRL_pressed = false;
+      usbHIDKbdStruct.MODIFIER = 0x01; // press 'ctrl'
+      usbHIDKbdStruct.KEYCODE1 = 0x06; // press 'c'
+      USBD_HID_SendReport(&hUsbDeviceFS, (uint8_t *) &usbHIDKbdStruct, sizeof(usbHIDKbdStruct));
+      HAL_Delay(50);
+      usbHIDKbdStruct.MODIFIER = 0x00; // release key
+      usbHIDKbdStruct.KEYCODE1 = 0x00; // release key
+      USBD_HID_SendReport(&hUsbDeviceFS, (uint8_t *) &usbHIDKbdStruct, sizeof(usbHIDKbdStruct));
+      HAL_Delay(50);
+    }
+    else
+    {
+      usbHIDKbdStruct.KEYCODE1 = 0x06; // press 'c'
+      USBD_HID_SendReport(&hUsbDeviceFS, (uint8_t *) &usbHIDKbdStruct, sizeof(usbHIDKbdStruct));
+      HAL_Delay(50);
+      usbHIDKbdStruct.KEYCODE1 = 0x00; // release key
+      USBD_HID_SendReport(&hUsbDeviceFS, (uint8_t *) &usbHIDKbdStruct, sizeof(usbHIDKbdStruct));
+      HAL_Delay(50);
+    }
+  }
+  if (key_V_pressed)
+  {
+    key_V_pressed = false;
+    if (key_CTRL_pressed)
+    {
+      key_CTRL_pressed = false;
+      usbHIDKbdStruct.MODIFIER = 0x01; // press 'ctrl'
+      usbHIDKbdStruct.KEYCODE1 = 0x19; // press 'v'
+      USBD_HID_SendReport(&hUsbDeviceFS, (uint8_t *) &usbHIDKbdStruct, sizeof(usbHIDKbdStruct));
+      HAL_Delay(50);
+      usbHIDKbdStruct.MODIFIER = 0x00; // release key
+      usbHIDKbdStruct.KEYCODE1 = 0x00; // release key
+      USBD_HID_SendReport(&hUsbDeviceFS, (uint8_t *) &usbHIDKbdStruct, sizeof(usbHIDKbdStruct));
+      HAL_Delay(50);
+    }
+    else
+    {
+      usbHIDKbdStruct.KEYCODE1 = 0x19; // press 'v'
+      USBD_HID_SendReport(&hUsbDeviceFS, (uint8_t *) &usbHIDKbdStruct, sizeof(usbHIDKbdStruct));
+      HAL_Delay(50);
+      usbHIDKbdStruct.KEYCODE1 = 0x00; // release key
+      USBD_HID_SendReport(&hUsbDeviceFS, (uint8_t *) &usbHIDKbdStruct, sizeof(usbHIDKbdStruct));
+      HAL_Delay(50);
+    }
+  }
+}
 /* USER CODE END 0 */
 
 /**
@@ -91,7 +190,11 @@ int main(void)
   MX_USB_DEVICE_Init();
   MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
-
+  if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK)
+  {
+	  /* Starting Error */
+	  Error_Handler();
+  }
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -101,6 +204,13 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	if (time10msElapsed)
+	{
+		time10msElapsed = false;
+		task_keypad_polling();
+	}
+	task_act_usb_hid_kbd();
+	HAL_Delay(50);
   }
   /* USER CODE END 3 */
 }
